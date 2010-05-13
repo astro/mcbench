@@ -29,12 +29,12 @@ run :: String -> Int -> Int -> IO ()
 run host port threads
     = do tStats <- atomically $
                    newTVar $ Stats 0 0 0
-         let start = do handle <- Fancy.connectStream (Fancy.IP host port)
-                        hSetBuffering handle NoBuffering
-                        conn <- Starling.open handle
-                        worker conn tStats
-         threads <- forM [1..threads] $ const $
-                    forkIO $ catch start $
+         let start w = do handle <- Fancy.connectStream (Fancy.IP host port)
+                          hSetBuffering handle NoBuffering
+                          conn <- Starling.open handle
+                          worker w 0 conn tStats
+         threads <- forM [1..threads] $ \w ->
+                    forkIO $ catch (start w) $
                                \e ->
                                    do putStrLn $ show e
                                       exitWith $ ExitFailure 1
@@ -67,10 +67,10 @@ statsLoop' tStats t1
                                | otherwise = format [f] r
                        in format formats
 
-worker :: Starling.Connection -> TVar Stats -> IO ()
-worker conn tStats
+worker :: Int -> Int -> Starling.Connection -> TVar Stats -> IO ()
+worker w i conn tStats
     = do t1 <- getPOSIXTime
-         Starling.set conn (C.pack "test") body
+         Starling.set conn (C.pack $ "test-" ++ show w ++ "-" ++ show i) body
          t2 <- getPOSIXTime
          atomically $ do
            stats <- readTVar tStats
@@ -79,6 +79,6 @@ worker conn tStats
                              statsLatency = statsLatency stats + t2 - t1,
                              statsBytes = statsBytes stats + fromIntegral (C.length body)
                            }
-         worker conn tStats
+         worker w (i + 1) conn tStats
 
 body = B.replicate (32 * 1024) 255
